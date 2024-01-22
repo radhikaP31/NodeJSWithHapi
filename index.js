@@ -1,8 +1,8 @@
-const Hapi = require('hapi');
+const Hapi = require('@hapi/hapi');
 const mongoose = require('mongoose');
 const User  = require('./models/userModel');
 const bcrypt = require('bcrypt');
-const Joi = require('joi');
+const Joi = require('@hapi/joi');
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const HapiAuthJwt2 = require("hapi-auth-jwt2");
@@ -66,9 +66,7 @@ const init = async () => {
             },
         },
         handler: async (request, h) => {
-            console.log('test');
           try {
-            console.log('test');
             const { name, email, mobile, password, status } = request.payload;
             const existingUser = await User.findOne({ email });
             if (existingUser) {
@@ -98,31 +96,36 @@ const init = async () => {
                 name: Joi.string().min(3).max(30).required(),
                 email: Joi.string().email().required(),
                 mobile: Joi.string().length(10).required(),
-                status: Joi.string().required(),
                 password: Joi.string().min(6).required(),
+                status: Joi.string().required(),
+              }),
+              params: Joi.object({
+                id: Joi.string().length(24).hex().required(),
               }),
             },
-          },
+        },
         handler: async (request, h) => {
-            try {
-                const id = request.params.id;
-                const userData =  await User.findById(id);
-                if(!userData){
-                    res.status(404).json({message: 'User not found'});
-                }
-                const { name, email, mobile, password, status } = request.payload;
-                const hashedPassword = await bcrypt.hash(password, 10);
-                const updateUser = new User({ name, email, mobile, password: hashedPassword, status });
-                let updated = await Note.updateOne({ _id: id }, updateUser).lean();
-                return h
-                .response({ message: "User updated successfully.", success: true, result: updated })
-                .code(200);
-            } catch (error) {
-                console.error('Error:', error);
-                return { success: false, message: 'Internal server error' };
-            }
+          try {
+              const id = request.params.id;
+              const userData =  await User.findById(id);
+              if(!userData){
+                  res.status(404).json({message: 'User not found'});
+              }
+              const { name, email, mobile, password, status } = request.payload;
+              const hashedPassword = await bcrypt.hash(password, 10);
+              const updated = await User.findByIdAndUpdate(
+                id,
+                { name, email, mobile, password: hashedPassword, status },
+                { new: true }
+              );
+              return h.response({ message: "User updated successfully.", success: true, result: updated }).code(200);
+          } catch (error) {
+              console.error('Error:', error);
+              return { success: false, message: 'Internal server error' };
+          }
         }
     });
+
 
     // Get single user data
     server.route({
@@ -148,13 +151,12 @@ const init = async () => {
         config: { auth: "jwt" },
         handler: async (request, h) => {
           try {
-            console.log('testtttt');
             const id = request.params.id;
-            const userData = await User.remove({ _id:id });
+            const userData = await User.findByIdAndDelete(id);
             return h.response({ success: true, message: "User deleted successfully.", data: userData }).code(200);
           } catch (error) {
             console.error('Error:', error);
-            return { success: false, message: 'Internal server error' };
+            h.response({ success: false, message: 'Internal server error' }).code(200);
           }
         },
     });
@@ -164,56 +166,55 @@ const init = async () => {
         path: '/auth',
         method: 'POST',
         handler: async (request, h) => {
-            console.log('test');
           try {
-            console.log('test');
-            const { username, password } = request.payload;
-            const user = await User.findOne({
-                where: {
-                    email: username,
-                },
-            });
+            const { email, password } = request.payload;
+            const user = await User.findOne({email});
             if(!user) {
-                res.status(200).json({success: false, message :'User not found.'});
+              return h.response({success: false, message :'User not found.'}).code(200);
             }
-
             const match = await bcrypt.compare(password, user.password);
             let payload = { id: user.id || 0 };
             const token = jwt.sign(payload,process.env.TOKEN_SECRET);
             if (match) {
-                return h
-                .response({ success: true, message: "Login Successfully.", token: token })
-                .code(200);
+                return h.response({ success: true, message: "Login Successfully.", token: token }).code(200);
             } else {
-                res.status(200).json({success: false, message: 'Incorrect password.' });
+              return h.response({success: false, message: 'Incorrect password.'}).code(200);
             }
           } catch (error) {
             console.error('Error:', error);
-            return { success: false, message: 'Internal server error' };
+            return h.response({ success: false, message: 'Internal server error' }).code(200);
           }
+        },
+        options: {
+          auth: false,
+          validate: {
+            payload: Joi.object({
+              email: Joi.string().email().required(),
+              password: Joi.string().required(),
+            }),
+          },
         },
     });
 
     // update the user status
   server.route({
-    method: "PATCH",
+    method: "PUT",
     path: "/users/change-status/{id}",
     config: { auth: "jwt" },
     handler: async (req, h) => {
       try {
         const user = await User.findById(req.params.id);
         if (!user) {
-          return h
-            .response({ message: "User not found.", data: user })
-            .code(200);
+          return h.response({ message: "User not found.", data: user }).code(200);
         }
-
         const { status } = req.payload;
         if (user) {
-          const userData = await User.findByIdAndUpdate(req.params.id, { status }, { new: true } );
-          return h
-            .response({ message: "Change status successfully", data: userData })
-            .code(200);
+          const userData = await User.findByIdAndUpdate(
+            req.params.id,
+            { status },
+            { new: true }
+          );
+          return h.response({ message: "Change status successfully", data: userData }).code(200);
         }
       } catch (error) {
         return h.response({ message: error.message, data: null }).code(500);
